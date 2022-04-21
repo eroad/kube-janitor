@@ -18,5 +18,6 @@ entries:
     - https://github.com/hjacobs/kube-janitor
     urls:
     - kube-janitor-0.1.0.tgz
-    version: 0.1.0
+    - kube-janitor-0.2.0.tgz
+    version: 0.2.0
 generated: "2020-01-07T13:31:04.992860036+01:00"
