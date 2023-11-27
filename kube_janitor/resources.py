@@ -1,5 +1,6 @@
 import logging
 
+from pykube.objects import APIObject
 from pykube.objects import NamespacedAPIObject
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,15 @@ def namespaced_object_factory(kind: str, name: str, api_version: str):
     )
 
 
+def clustered_object_factory(kind: str, name: str, api_version: str):
+    # https://github.com/kelproject/pykube/blob/master/pykube/objects.py#L138
+    return type(
+        kind,
+        (APIObject,),
+        {"version": api_version, "endpoint": name, "kind": kind},
+    )
+
+
 def discover_api_group(api, group_version: str):
     logger.debug(f"Collecting resources in API group {group_version}..")
     response = api.get(version=group_version)
@@ -21,17 +31,13 @@ def discover_api_group(api, group_version: str):
     return response.json()["resources"]
 
 
-def discover_namespaced_api_resources(api):
+def discover_api_resources(api):
     core_version = "v1"
     r = api.get(version=core_version)
     r.raise_for_status()
     for resource in r.json()["resources"]:
         # ignore subresources like pods/proxy
-        if (
-            resource["namespaced"]
-            and "/" not in resource["name"]
-            and "delete" in resource["verbs"]
-        ):
+        if "/" not in resource["name"] and "delete" in resource["verbs"]:
             yield core_version, resource
 
     r = api.get(version="/apis")
@@ -58,11 +64,7 @@ def discover_namespaced_api_resources(api):
             continue
 
         for resource in resources:
-            if (
-                resource["namespaced"]
-                and "/" not in resource["name"]
-                and "delete" in resource["verbs"]
-            ):
+            if "/" not in resource["name"] and "delete" in resource["verbs"]:
                 if group_version == pref_version:
                     yield group_version, resource
                     yielded.add((group_version, resource["name"]))
@@ -74,9 +76,14 @@ def discover_namespaced_api_resources(api):
             yield group_version, resource
 
 
-def get_namespaced_resource_types(api):
-    for api_version, resource in discover_namespaced_api_resources(api):
-        clazz = namespaced_object_factory(
-            resource["kind"], resource["name"], api_version
-        )
+def get_resource_types(api):
+    for api_version, resource in discover_api_resources(api):
+        if resource["namespaced"]:
+            clazz = namespaced_object_factory(
+                resource["kind"], resource["name"], api_version
+            )
+        else:
+            clazz = clustered_object_factory(
+                resource["kind"], resource["name"], api_version
+            )
         yield clazz

@@ -19,15 +19,29 @@ def main(args=None):
     args = parser.parse_args(args)
 
     logging.basicConfig(
-        format="%(asctime)s %(levelname)s: %(message)s",
+        format=args.log_format,
         level=logging.DEBUG if args.debug else logging.INFO,
     )
+
+    if '"' in args.log_format:
+
+        class FilterEscapeQuotes(logging.Filter):
+            def filter(self, record):
+                record.msg = record.msg.replace('"', '\\"')
+                return record
+
+        logger.addFilter(FilterEscapeQuotes())
 
     config_str = ", ".join(f"{k}={v}" for k, v in sorted(vars(args).items()))
     logger.info(f"Janitor v{__version__} started with {config_str}")
 
     if args.dry_run:
         logger.info("**DRY-RUN**: no deletions will be performed!")
+
+    if args.include_cluster_resources:
+        logger.info(
+            "**INCLUDE CLUSTER RESOURCES**: Cluster scoped resources will be included in this run"
+        )
 
     if args.rules_file:
         rules = load_rules_from_file(args.rules_file)
@@ -48,6 +62,8 @@ def main(args=None):
         args.resource_context_hook,
         args.wait_after_delete,
         args.dry_run,
+        args.quiet,
+        args.include_cluster_resources,
     )
 
 
@@ -64,6 +80,8 @@ def run_loop(
     resource_context_hook: Optional[Callable],
     wait_after_delete: int,
     dry_run: bool,
+    quiet: bool,
+    include_cluster_resources: bool,
 ):
     handler = shutdown.GracefulShutdown()
     while True:
@@ -81,6 +99,8 @@ def run_loop(
                 resource_context_hook=resource_context_hook,
                 wait_after_delete=wait_after_delete,
                 dry_run=dry_run,
+                quiet=quiet,
+                include_cluster_resources=include_cluster_resources,
             )
         except Exception as e:
             logger.exception("Failed to clean up: %s", e)

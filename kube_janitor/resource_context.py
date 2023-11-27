@@ -34,7 +34,11 @@ def get_objects_in_namespace(
     cache_key = f"{namespace}/{clazz.endpoint}"
     objects = cache.get(cache_key)
     if objects is None:
-        objects = list(clazz.objects(api, namespace=namespace))
+        try:
+            objects = list(clazz.objects(api, namespace=namespace))
+        except:
+            logger.warn(f"Failed to get {clazz.version}/{clazz.kind} in {namespace}")
+            return []
         cache[cache_key] = objects
 
     return objects
