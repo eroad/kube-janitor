@@ -27,6 +27,17 @@ def get_parser():
         "--debug", "-d", help="Debug mode: print more information", action="store_true"
     )
     parser.add_argument(
+        "--quiet",
+        "-q",
+        help="Quiet mode: Hides cleanup logs but keeps deletion logs",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--log-format",
+        help="Set custom log format using Python logging formatting\n(default: '%%(asctime)s %%(levelname)s: %%(message)s')",
+        default="%(asctime)s %(levelname)s: %(message)s",
+    )
+    parser.add_argument(
         "--once", help="Run loop only once and exit", action="store_true"
     )
     parser.add_argument(
@@ -76,5 +87,10 @@ def get_parser():
         "--resource-context-hook",
         type=get_hook_function,
         help="Optional hook to extend the '_context' object with custom information, e.g. to base decisions on external systems",
+    )
+    parser.add_argument(
+        "--include-cluster-resources",
+        help="Optional includes cluster scoped resources",
+        action="store_true",
     )
     return parser

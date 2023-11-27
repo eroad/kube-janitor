@@ -1,9 +1,14 @@
 import datetime
+import json
+import logging
 import os
 import re
 
 import pykube
+import requests
 
+
+logger = logging.getLogger(__name__)
 
 TIME_UNIT_TO_SECONDS = {
     "s": 1,
@@ -81,3 +86,19 @@ def get_kube_api():
         config = pykube.KubeConfig.from_file(os.getenv("KUBECONFIG", "~/.kube/config"))
     api = pykube.HTTPClient(config)
     return api
+
+
+def send_notification_webhook(message: str):
+    webhook_url = os.getenv("WEBHOOK_URL")
+
+    if not webhook_url:
+        return
+
+    try:
+        requests.post(
+            url=webhook_url,
+            data=json.dumps({"message": message}),
+            headers={"Content-Type": "application/json"},
+        )
+    except Exception as e:
+        logger.error(e)

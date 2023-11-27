@@ -1,9 +1,9 @@
 from unittest.mock import MagicMock
 
-from kube_janitor.resources import get_namespaced_resource_types
+from kube_janitor.resources import get_resource_types
 
 
-def test_get_namespaced_resource_types():
+def test_get_resource_types():
     api_mock = MagicMock()
 
     def api_get(version):
@@ -122,8 +122,12 @@ def test_get_namespaced_resource_types():
 
     api_mock.get = api_get
 
-    resource_types = list(get_namespaced_resource_types(api_mock))
+    resource_types = list(get_resource_types(api_mock))
     kinds = set(f"{clazz.kind} ({clazz.version})" for clazz in resource_types)
     assert kinds == frozenset(
-        ["StackSet (zalando.org/v1)", "FabricEventStream (zalando.org/v1alpha1)"]
+        [
+            "Namespace (v1)",
+            "StackSet (zalando.org/v1)",
+            "FabricEventStream (zalando.org/v1alpha1)",
+        ]
     )

@@ -15,18 +15,24 @@ lint:
 	poetry run pre-commit run --all-files
 
 test: install lint
-	poetry run coverage run --source=kube_janitor -m py.test -v
+	poetry run coverage run --source=kube_janitor -m pytest -v
 	poetry run coverage report
 
 version:
-	sed -i "s/version: v.*/version: v$(VERSION)/" deploy/*/*.yaml
-	sed -i "s/kube-janitor:.*/kube-janitor:$(VERSION)/" deploy/*/*.yaml
+	sed -i "s/version: v.*/version: v$(VERSION)/" deploy/*.yaml
+	sed -i "s/kube-janitor:.*/kube-janitor:$(VERSION)/" deploy/*.yaml
+	sed -i "s/appVersion:.*/appVersion: $(VERSION)/" unsupported/helm/Chart.yaml
 
 docker:
-	docker build --build-arg "VERSION=$(VERSION)" -t "$(IMAGE):$(TAG)" .
-	@echo 'Docker image $(IMAGE):$(TAG) can now be used.'
+	docker buildx create --use
+	docker buildx build --rm --build-arg "VERSION=$(VERSION)" -t "$(IMAGE):$(TAG)" -t "$(IMAGE):latest" --platform linux/amd64,linux/arm64 .
+	@echo 'Docker image $(IMAGE):$(TAG) multi-arch was build (cannot be used).'
 
-push: docker
-	docker push "$(IMAGE):$(TAG)"
-	docker tag "$(IMAGE):$(TAG)" "$(IMAGE):latest"
-	docker push "$(IMAGE):latest"
+push:
+	docker buildx create --use
+	docker buildx build --rm --build-arg "VERSION=$(VERSION)" -t "$(IMAGE):$(TAG)" -t "$(IMAGE):latest" --platform linux/amd64,linux/arm64 --push .
+	@echo 'Docker image $(IMAGE):$(TAG) multi-arch can now be used.'
+
+.PHONY: helm-docs
+helm-docs:
+	@helm-docs -o Values.md

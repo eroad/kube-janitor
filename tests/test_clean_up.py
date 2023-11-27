@@ -4,6 +4,7 @@ import logging
 import unittest
 from unittest.mock import MagicMock
 
+from pykube import ClusterRoleBinding
 from pykube import Namespace
 from pykube.objects import NamespacedAPIObject
 
@@ -25,12 +26,66 @@ mock_now = unittest.mock.patch(
 
 def test_matches_resource_filter():
     foo_ns = Namespace(None, {"metadata": {"name": "foo"}})
-    assert not matches_resource_filter(foo_ns, [], [], [], [])
-    assert not matches_resource_filter(foo_ns, ALL, [], [], [])
-    assert matches_resource_filter(foo_ns, ALL, [], ALL, [])
-    assert not matches_resource_filter(foo_ns, ALL, [], ALL, ["foo"])
-    assert not matches_resource_filter(foo_ns, ALL, ["namespaces"], ALL, [])
-    assert matches_resource_filter(foo_ns, ALL, ["deployments"], ALL, ["kube-system"])
+    foo_cluster_role_binding = ClusterRoleBinding(None, {"metadata": {"name": "foo"}})
+
+    assert not matches_resource_filter(foo_ns, [], [], [], [], False)
+    assert not matches_resource_filter(foo_ns, ALL, [], [], [], False)
+    assert matches_resource_filter(foo_ns, ALL, [], ALL, [], False)
+    assert not matches_resource_filter(foo_ns, ALL, [], ALL, ["foo"], False)
+    assert not matches_resource_filter(foo_ns, ALL, ["namespaces"], ALL, [], False)
+    assert matches_resource_filter(
+        foo_ns, ALL, ["deployments"], ALL, ["kube-system"], False
+    )
+    assert matches_resource_filter(
+        foo_ns,
+        include_resources=["namespaces"],
+        exclude_resources=ALL,
+        include_namespaces=["foo"],
+        exclude_namespaces=[],
+        include_cluster_resources=False,
+    )
+    assert not matches_resource_filter(
+        foo_ns,
+        include_resources=["deployments"],
+        exclude_resources=ALL,
+        include_namespaces=["foo"],
+        exclude_namespaces=[],
+        include_cluster_resources=False,
+    )
+    assert matches_resource_filter(
+        foo_ns,
+        include_resources=["namespaces"],
+        exclude_resources=[],
+        include_namespaces=["foo"],
+        exclude_namespaces=ALL,
+        include_cluster_resources=False,
+    )
+    assert not matches_resource_filter(
+        foo_ns,
+        include_resources=["namespaces"],
+        exclude_resources=[],
+        include_namespaces=["bar"],
+        exclude_namespaces=ALL,
+        include_cluster_resources=False,
+    )
+
+    # Testing cluster scoped resource filtering
+    assert not matches_resource_filter(
+        foo_cluster_role_binding,
+        include_resources=ALL,
+        exclude_resources=[],
+        include_namespaces=[],
+        exclude_namespaces=[],
+        include_cluster_resources=False,
+    )
+    assert matches_resource_filter(
+        foo_cluster_role_binding,
+        include_resources=ALL,
+        exclude_resources=[],
+        include_namespaces=[],
+        exclude_namespaces=[],
+        include_cluster_resources=True,
+    )
 
 
 def test_delete_namespace(caplog):
@@ -273,7 +328,8 @@ def test_handle_resource_expiry_expired():
     assert counter == {"namespaces-with-expiry": 1, "namespaces-deleted": 1}
 
 
-def test_clean_up_default():
+def test_clean_up_default(caplog):
+    caplog.set_level(logging.INFO)
     api_mock = MagicMock(spec=NamespacedAPIObject, name="APIMock")
 
     def get(**kwargs):
@@ -306,9 +362,52 @@ def test_clean_up_default():
         delete_notification=0,
         deployment_time_annotation=None,
         dry_run=False,
+        quiet=False,
     )
 
     assert counter["resources-processed"] == 1
+    assert "Clean up run completed" in caplog.text
+
+
+def test_clean_up_quiet(caplog):
+    caplog.set_level(logging.INFO)
+    api_mock = MagicMock(spec=NamespacedAPIObject, name="APIMock")
+
+    def get(**kwargs):
+        if kwargs.get("url") == "namespaces":
+            # kube-system is skipped
+            data = {
+                "items": [
+                    {"metadata": {"name": "default"}},
+                    {"metadata": {"name": "kube-system"}},
+                ]
+            }
+        elif kwargs["version"] == "v1":
+            data = {"resources": []}
+        elif kwargs["version"] == "/apis":
+            data = {"groups": []}
+        else:
+            data = {}
+        response = MagicMock()
+        response.json.return_value = data
+        return response
+
+    api_mock.get = get
+    counter = clean_up(
+        api_mock,
+        ALL,
+        [],
+        ALL,
+        ["kube-system"],
+        [],
+        delete_notification=0,
+        deployment_time_annotation=None,
+        dry_run=False,
+        quiet=True,
+    )
+
+    assert counter["resources-processed"] == 1
+    assert caplog.text == ""
 
 
 def test_clean_up_only_included_namespaces():
@@ -345,6 +444,46 @@ def test_clean_up_only_included_namespaces():
         ALL,
         [],
         ["foo"],
+        ["kube-system"],
+        [],
+        delete_notification=0,
+        deployment_time_annotation=None,
+        dry_run=False,
+    )
+
+    assert counter["resources-processed"] == 1
+
+
+def test_clean_up_only_namespaces():
+    api_mock = MagicMock(spec=NamespacedAPIObject, name="APIMock")
+
+    def get(**kwargs):
+        if kwargs.get("url") == "namespaces/default":
+            data = {"metadata": {"name": "default"}}
+        elif kwargs.get("url") == "namespaces":
+            # kube-system is skipped
+            data = {
+                "items": [
+                    {"metadata": {"name": "default"}},
+                    {"metadata": {"name": "kube-system"}},
+                ]
+            }
+        elif kwargs["version"] == "v1":
+            data = {"resources": []}
+        elif kwargs["version"] == "/apis":
+            data = {"groups": []}
+        else:
+            data = {}
+        response = MagicMock()
+        response.json.return_value = data
+        return response
+
+    api_mock.get = get
+    counter = clean_up(
+        api_mock,
+        ["namespaces"],
+        [],
+        ["all"],
         ["kube-system"],
         [],
         delete_notification=0,
@@ -796,6 +935,98 @@ def test_clean_up_by_rule():
     api_mock.delete.assert_called_once_with(
         data='{"propagationPolicy": "Background"}',
         namespace="ns-1",
+        url="/customfoos/foo-1",
+        version="srcco.de/v1",
+    )
+
+
+@mock_now
+def test_clean_cluster_resources():
+    api_mock = MagicMock(name="APIMock")
+
+    rule = Rule.from_entry(
+        {
+            "id": "r1",
+            "resources": ["customfoos"],
+            "jmespath": "!(starts_with(metadata.name, 'kube'))",
+            "ttl": "10m",
+        }
+    )
+
+    def get(**kwargs):
+        if kwargs.get("url") == "namespaces":
+            data = {"items": [{"metadata": {"name": "ns-1"}}]}
+        elif kwargs.get("url") == "customfoos":
+            data = {
+                "items": [
+                    {
+                        "metadata": {
+                            "name": "foo-1",
+                            "creationTimestamp": "2019-01-17T15:14:38Z",
+                        }
+                    }
+                ]
+            }
+        elif kwargs["version"] == "v1":
+            data = {"resources": []}
+        elif kwargs["version"] == "srcco.de/v1":
+            data = {
+                "resources": [
+                    {
+                        "kind": "CustomFoo",
+                        "name": "customfoos",
+                        "namespaced": False,  # cluster object not namespaced
+                        "verbs": ["delete"],
+                    }
+                ]
+            }
+        elif kwargs["version"] == "/apis":
+            data = {"groups": [{"preferredVersion": {"groupVersion": "srcco.de/v1"}}]}
+        else:
+            data = {}
+        response = MagicMock()
+        response.json.return_value = data
+        return response
+
+    api_mock.get = get
+    counter = clean_up(
+        api_mock,
+        ALL,
+        [],
+        ALL,
+        [],
+        [rule],
+        0,
+        deployment_time_annotation=None,
+        dry_run=False,
+        include_cluster_resources=True,  # adding cluster flag
+    )
+
+    # namespace ns-1 and object foo-1
+    assert counter["resources-processed"] == 2
+    assert counter["rule-r1-matches"] == 1
+    assert counter["customfoos-with-ttl"] == 1
+    assert counter["customfoos-deleted"] == 1
+
+    api_mock.post.assert_called_once()
+    _, kwargs = api_mock.post.call_args
+    assert kwargs["url"] == "events"
+    data = json.loads(kwargs["data"])
+    assert data["reason"] == "TimeToLiveExpired"
+    assert "rule r1 matches" in data["message"]
+    involvedObject = {
+        "kind": "CustomFoo",
+        "name": "foo-1",
+        "apiVersion": "srcco.de/v1",
+        "resourceVersion": None,
+        "namespace": None,  # no namespace on object
+        "uid": None,
+    }
+    assert data["involvedObject"] == involvedObject
+
+    # verify that the delete call happened. No namespace in object
+    api_mock.delete.assert_called_once_with(
+        data='{"propagationPolicy": "Background"}',
         url="/customfoos/foo-1",
         version="srcco.de/v1",
     )
