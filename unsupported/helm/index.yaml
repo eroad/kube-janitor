@@ -54,5 +54,5 @@ entries:
     - https://codeberg.org/hjacobs/kube-janitor
     urls:
     - kube-janitor-0.3.1.tgz
-    version: 0.3.1
+    version: 0.3.2
 generated: "2020-01-07T13:31:04.992860036+01:00"
